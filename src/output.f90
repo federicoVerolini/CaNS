@@ -11,7 +11,7 @@ module mod_output
   use mod_types
   implicit none
   private
-  public out0d,gen_alias,out1d,out1d_chan,out2d,out3d,write_log_output,write_visu_2d,write_visu_3d
+  public out0d,gen_alias,out1d,out1d_chan,out2d,out3d,write_log_output,write_visu_2d,write_visu_3d,out2d_duct,out2d_wallPressure
   character(len=*), parameter :: fmt_dp = '(*(es24.16e3,1x))', &
                                  fmt_sp = '(*(es15.8e2,1x))'
 #if !defined(_SINGLE_PRECISION)
@@ -308,6 +308,14 @@ module mod_output
   end subroutine write_visu_2d
   !
   subroutine out1d_chan(fname,ng,lo,hi,idir,l,dl,z_g,u,v,w) ! e.g. for a channel with streamwise dir in x
+    !
+    ! fname -> name of the file
+    ! ng    -> global domain sizes
+    ! lo,hi -> upper and lower extents of the input array
+    ! idir  -> direction of the profile
+    ! dl,l  -> uniform grid spacing and length arrays
+    ! z_g   -> global z coordinate array (grid is non-uniform in z)
+    !
     implicit none
     character(len=*), intent(in) :: fname
     integer , intent(in), dimension(3) :: ng,lo,hi
@@ -376,6 +384,13 @@ module mod_output
   end subroutine out1d_chan
   !
   subroutine out2d_duct(fname,ng,lo,hi,idir,l,dl,z_g,u,v,w) ! e.g. for a duct
+    !
+    ! fname -> name of the file
+    ! ng    -> global domain sizes
+    ! lo,hi -> upper and lower extents of the input array
+    ! idir  -> direction of the profile
+    ! dl,l  -> uniform grid spacing and length arrays
+    ! z_g   -> global z coordinate array (grid is non-uniform in z)
     !
     implicit none
     character(len=*), intent(in) :: fname
@@ -510,4 +525,80 @@ module mod_output
       end if
     end select
   end subroutine out2d_duct
+  !
+  subroutine out2d_wallPressure(fname,ng,lo,hi,idir,dl,p)
+    !
+    ! fname -> name of the file
+    ! ng    -> global domain sizes
+    ! lo,hi -> upper and lower extents of the input array
+    ! idir  -> direction of the profile
+    ! dl    -> !!!!!! UNIFORM grid spacing !!!!!!
+    !
+    implicit none
+    character(len=*), intent(in) :: fname
+    integer , intent(in), dimension(3) :: ng,lo,hi
+    integer , intent(in) :: idir
+    real(rp), intent(in), dimension(3) :: dl
+    real(rp), intent(in), dimension(lo(1)-1:,lo(2)-1:,lo(3)-1:) :: p
+    real(rp), allocatable, dimension(:,:) :: p_wall
+    integer :: i,j,k
+    integer :: iunit
+    integer :: a,b,z_zero,y_zero
+    real(rp) :: x_g,y_g,z_g
+    !
+    select case(idir)
+    case(3)
+      a = ng(1)
+      b = ng(2)
+      z_zero=lo(3)
+      allocate(p_wall(a,b))
+      !
+      p_wall(:,:) = 0.
+      do i=lo(1),hi(1)
+        do j=lo(2),hi(2)
+          p_wall(i,j)=p(i,j,z_zero)
+        end do
+      end do
+      call MPI_ALLREDUCE(MPI_IN_PLACE,p_wall(1,1),ng(1)*ng(2),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
+      if(myid == 0) then
+        open(newunit=iunit,file=fname)
+        do j=1,ng(2)
+          do i=1,ng(1)
+            x_g = (i-.5)*dl(1)
+            y_g=(j-.5)*dl(2)
+            write(iunit,fmt_rp) x_g,y_g,p_wall(i,j)
+          end do
+        end do
+        close(iunit)
+      end if
+    !
+    case(2)
+      a = ng(1)
+      b = ng(3)
+      y_zero=lo(2)
+      allocate(p_wall(a,b))
+      !
+      p_wall(:,:) = 0.
+      do i=lo(1),hi(1)
+        do j=lo(3),hi(3)
+          p_wall(i,j)=p(i,j,y_zero)
+        end do
+      end do
+      call MPI_ALLREDUCE(MPI_IN_PLACE,p_wall(1,1),ng(1)*ng(3),MPI_REAL_RP,MPI_SUM,MPI_COMM_WORLD,ierr)
+      if(myid == 0) then
+        open(newunit=iunit,file=fname)
+        do j=1,ng(3)
+          do i=1,ng(1)
+            x_g = (i-.5)*dl(1)
+            z_g=(j-.5)*dl(3)
+            write(iunit,fmt_rp) x_g,z_g,p_wall(i,j)
+          end do
+        end do
+        close(iunit)
+      end if
+    !
+    case(1)
+    !
+    end select
+  end subroutine out2d_wallPressure
 end module mod_output
